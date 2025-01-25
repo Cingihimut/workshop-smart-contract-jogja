@@ -6,6 +6,7 @@ import {Counter} from "../src/Counter.sol";
 
 contract CounterTest is Test {
     Counter public counter;
+    address public alice = makeAddr("alice");
 
     function setUp() public {
         counter = new Counter();
@@ -15,6 +16,15 @@ contract CounterTest is Test {
     function test_Increment() public {
         counter.increment();
         assertEq(counter.number(), 1);
+    }
+
+    function test_SetPice() public {
+        counter.setPrice(100);
+        assertEq(counter.price(), 100);
+        console.log("price: ", counter.price());
+
+        vm.prank(alice);
+        counter.setPrice(200);
     }
 
     function testFuzz_SetNumber(uint256 x) public {
