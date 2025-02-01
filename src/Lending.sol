@@ -42,8 +42,7 @@ contract Lending {
 
     IERC20(usdc).transfer(msg.sender, amountBorrow);
   }
-
-
+ 
   function leverage(uint256 amountSupply,uint256 amountBorrow) external {
     IERC20(wbtc).transferFrom(msg.sender,address(this),amountSupply);
 
@@ -70,6 +69,5 @@ contract Lending {
     uint256 wbtcBalance = IERC20(wbtc).balanceOf(address(this));
     IERC20(wbtc).approve(lendingPool,wbtcBalance);
     IAavePool(lendingPool).supply(wbtc,wbtcBalance,address(this),0);
-
   }
 }
