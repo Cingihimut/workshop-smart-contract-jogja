@@ -3,12 +3,22 @@ pragma solidity ^0.8.13;
 
 import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "openzeppelin-contracts/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {SafeERC20} from "openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 interface Oracle {
   function getPrice() external view returns (uint256);
 }
 
-contract LendingPool  {
+contract LendingPool is ReentrancyGuard {
+  using SafeERC20 for IERC20;
+  
+  error ZeroAmount();
+  error InsufficientShares();
+  error InsufficientLiquidity();
+  error InsufficientCollateral();
+  error LTVExceedMaxAmount();
+  error InvalidOracle();
 
   //!Supply
   uint256 public totalSupplyShares;
@@ -22,13 +32,7 @@ contract LendingPool  {
   address public debtToken;
   address public collateralToken;
   address public oracle;
-  
-  error ZeroAmount();
-  error InsufficientShares();
-  error InsufficientLiquidity();
-  error InsufficientCollateral();
-  error LTVExceedMaxAmount();
-  error InvalidOracle();
+
   
   event Supply(address user, uint256 amount, uint256 shares);
   event Withdraw(address user, uint256 amount, uint256 shares);
@@ -50,10 +54,10 @@ contract LendingPool  {
     ltv = _ltv
   }
 
-  function supply(uint256 amount) external {
+  function supply(uint256 amount) external nonReentrant {
     _accrueInterest();
     if (amount == 0) revert ZeroAmount();
-    IERC20(debtToken).transferFrom(msg.sender,address(this),amount);
+    IERC20(debtToken).safeTransferFrom(msg.sender,address(this),amount);
 
     uint256 shares = 0;
     if (totalSupplyShares == 0 ) {
@@ -69,7 +73,7 @@ contract LendingPool  {
     emit Supply(msg.sender, amount, shares);
   }
 
-  function borrow(uint256 amount) external {
+  function borrow(uint256 amount) external nonReentrant {
     _accrueInterest();
 
     uint256 shares = 0;
@@ -86,12 +90,12 @@ contract LendingPool  {
     totalBorrowShares += shares;
     totalBorrowAssets += amount;
 
-    IERC20(debtToken).transfer(msg.sender, amount);
+    IERC20(debtToken).safeTransfer(msg.sender, amount);
 
     emit Borrow(msg.sender, amount, shares);
   }
 
-  function repay(uint256 shares) external {
+  function repay(uint256 shares) external nonReentrant {
     if(shares == 0) revert ZeroAmount();
 
     _accrueInterest();
@@ -102,13 +106,13 @@ contract LendingPool  {
     totalBorrowShares -= shares;
     totalBorrowAssets -= borrowAmount;
 
-    IERC20(debtToken).transferFrom(msg.sender, address(this), borrowAmount);
+    IERC20(debtToken).safeTransferFrom(msg.sender, address(this), borrowAmount);
 
     emit Repay(msg.sender, borrowAmount, shares);
 
   }
 
-  function accureInterest() external {
+  function accureInterest() external nonReentrant {
     _accrueInterest();
   }
 
@@ -128,12 +132,12 @@ contract LendingPool  {
     lastAccrued = block.timestamp;
   }
 
-  function supplyCollateral(uint256 amount) external {
+  function supplyCollateral(uint256 amount) external nonReentrant {
     if(amount == 0) revert ZeroAmount();
 
     _accrueInterest();  
 
-    IERC20(collateralToken).transferFrom(msg.sender, address(this), amount);
+    IERC20(collateralToken).safeTransferFrom(msg.sender, address(this), amount);
 
     userCollaterals[msg.sender] += amount;
 
@@ -141,7 +145,7 @@ contract LendingPool  {
 
   }
 
-  function withdrawCollateral(uint256 amount) public {
+  function withdrawCollateral(uint256 amount) public nonReentrant() {
     if(amount == 0) revert ZeroAmount();
     if(amount > userCollaterals[msg.sender]) revert InsufficientCollateral();
 
@@ -151,7 +155,7 @@ contract LendingPool  {
 
     _isHealthy(msg.sender);
 
-    IERC20(collateralToken).transfer(msg.sender, amount);
+    IERC20(collateralToken).safeTransfer(msg.sender, amount);
   }
 
   function _isHealthy(address user) internal view {
@@ -166,8 +170,8 @@ contract LendingPool  {
     if (borrowed > maxBorrow) revert InsufficientCollateral();
   }
 
-  function withdraw(uint256 shares) external {
-    if(shares ==0) revert ZeroAmount();
+  function withdraw(uint256 shares) external nonReentrant {
+    if(shares == 0) revert ZeroAmount();
 
     if(shares > userSupplyShares[msg.sender]) revert InsufficientShares();
 
@@ -181,7 +185,7 @@ contract LendingPool  {
 
     if(totalSupplyAssets < totalBorrowAssets) revert InsufficientLiquidity();
 
-    IERC20(debtToken).transfer(msg.sender, amount);
+    IERC20(debtToken).safeTransfer(msg.sender, amount);
 
     emit Withdraw(msg.sender, amount, shares);
   }
@@ -189,13 +193,11 @@ contract LendingPool  {
   function flashLoan(address token, uint256 amount, calldata data) external {
     if(amount == 0) revert ZeroAmount();
 
-    IERC20(token).transfer(msg.sender, amount);
+    IERC20(token).safeTransfer(msg.sender, amount);
 
     (bool success, ) = address(msg.sender).call(data);
     if(!success) revert FlashLoanFailed();
 
-    IERC20(token).transfer(address(this), amount);
+    IERC20(token).safeTransfer(address(this), amount);
   }
-
-
 }
